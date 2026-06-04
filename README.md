@@ -20,38 +20,7 @@ Selected examples are kept in `animations/` for quick inspection.
 
 ### P1
 
-<table>
-  <tr>
-    <td align="center">
-      <img src="animations/Demo_GIF/yaw30_test/yaw30_group80.gif" width="360"><br>
-      <b>P1-1</b>
-    </td>
-    <td align="center">
-      <img src="animations/Demo_GIF/yaw30_test/yaw30_group107.gif" width="360"><br>
-      <b>P1-2</b>
-    </td>
-  </tr>
-  <tr>
-    <td align="center">
-      <img src="animations/Demo_GIF/yaw30_test/yaw30_group137.gif" width="360"><br>
-      <b>P1-3</b>
-    </td>
-    <td align="center">
-      <img src="animations/Demo_GIF/yaw30_test/yaw30_group139.gif" width="360"><br>
-      <b>P1-4</b>
-    </td>
-  </tr>
-  <tr>
-    <td align="center">
-      <img src="animations/Demo_GIF/yaw30_test/yaw30_group144.gif" width="360"><br>
-      <b>P1-3</b>
-    </td>
-    <td align="center">
-      <img src="animations/Demo_GIF/yaw30_test/yaw30_group226.gif" width="360"><br>
-      <b>P1-4</b>
-    </td>
-  </tr>
-</table>
+<table> <tr> <td align="center"> <a href="animations/Demo_GIF/yaw30_test/P1/yaw30_group80.gif"> <img src="animations/Demo_GIF/preview/P1/yaw30_group80_preview.gif" width="320"> </a><br> <b>P1-1: Group 80</b> </td> <td align="center"> <a href="animations/Demo_GIF/yaw30_test/P1/yaw30_group107.gif"> <img src="animations/Demo_GIF/preview/P1/yaw30_group107_preview.gif" width="320"> </a><br> <b>P1-2: Group 107</b> </td> </tr> </table>
 
 ### P2
 
