@@ -18,7 +18,7 @@ python vis.py --data_root Data_With_Pred\GeoSTAR_fulldata_40
 
 Selected examples are kept in `animations/` for quick inspection.
 
-![GeoSTAR-Pose demo](animations/group_59_animation.gif)
+![GeoSTAR-Pose demo GIF](animations/Demo_GIF/yaw30_test/yaw30_group80.gif)
 
 ## Highlights
 
