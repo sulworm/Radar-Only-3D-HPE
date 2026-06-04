@@ -23,32 +23,22 @@ Selected examples are kept in `animations/` for quick inspection.
 <table>
   <tr>
     <td align="center" width="50%">
-      <img src="animations/Demo_GIF/yaw30_test/yaw30_group80.gif" width="100%" alt="P1 group 80"><br>
+      <img src="animations/Demo_GIF/yaw30_test/yaw30_group107.gif" width="100%" alt="P1 group 80"><br>
       <sub>Group 80</sub>
     </td>
     <td align="center" width="50%">
-      <img src="animations/Demo_GIF/yaw30_test/yaw30_group107.gif" width="100%" alt="P1 group 107"><br>
+      <img src="animations/Demo_GIF/yaw30_test/yaw30_group137.gif" width="100%" alt="P1 group 107"><br>
       <sub>Group 107</sub>
     </td>
   </tr>
   <tr>
     <td align="center" width="50%">
-      <img src="animations/Demo_GIF/yaw30_test/yaw30_group137.gif" width="100%" alt="P1 group 137"><br>
+      <img src="animations/Demo_GIF/yaw30_test/yaw30_group139.gif" width="100%" alt="P1 group 137"><br>
       <sub>Group 137</sub>
     </td>
     <td align="center" width="50%">
-      <img src="animations/Demo_GIF/yaw30_test/yaw30_group139.gif" width="100%" alt="P1 group 139"><br>
+      <img src="animations/Demo_GIF/yaw30_test/yaw30_group144.gif" width="100%" alt="P1 group 139"><br>
       <sub>Group 139</sub>
-    </td>
-  </tr>
-  <tr>
-    <td align="center" width="50%">
-      <img src="animations/Demo_GIF/yaw30_test/yaw30_group144.gif" width="100%" alt="P1 group 144"><br>
-      <sub>Group 144</sub>
-    </td>
-    <td align="center" width="50%">
-      <img src="animations/Demo_GIF/yaw30_test/yaw30_group226.gif" width="100%" alt="P1 group 226"><br>
-      <sub>Group 226</sub>
     </td>
   </tr>
 </table>
