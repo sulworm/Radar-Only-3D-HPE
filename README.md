@@ -18,7 +18,80 @@ python vis.py --data_root Data_With_Pred\GeoSTAR_fulldata_40
 
 Selected examples are kept in `animations/` for quick inspection.
 
-![GeoSTAR-Pose demo GIF](animations/Demo_GIF/yaw30_test/yaw30_group80.gif)
+### P1
+
+<table>
+  <tr>
+    <td align="center">
+      <img src="animations/Demo_GIF/yaw30_test/yaw30_group80.gif" width="360"><br>
+      <b>P1-1</b>
+    </td>
+    <td align="center">
+      <img src="animations/Demo_GIF/yaw30_test/yaw30_group107.gif" width="360"><br>
+      <b>P1-2</b>
+    </td>
+  </tr>
+  <tr>
+    <td align="center">
+      <img src="animations/Demo_GIF/yaw30_test/yaw30_group137.gif" width="360"><br>
+      <b>P1-3</b>
+    </td>
+    <td align="center">
+      <img src="animations/Demo_GIF/yaw30_test/yaw30_group139.gif" width="360"><br>
+      <b>P1-4</b>
+    </td>
+  </tr>
+  <tr>
+    <td align="center">
+      <img src="animations/Demo_GIF/yaw30_test/yaw30_group144.gif" width="360"><br>
+      <b>P1-3</b>
+    </td>
+    <td align="center">
+      <img src="animations/Demo_GIF/yaw30_test/yaw30_group226.gif" width="360"><br>
+      <b>P1-4</b>
+    </td>
+  </tr>
+</table>
+
+### P2
+
+<table>
+  <tr>
+    <td align="center">
+      <img src="animations/Demo_GIF/p2/p2_group212.gif" width="360"><br>
+      <b>P2-1</b>
+    </td>
+    <td align="center">
+      <img src="animations/Demo_GIF/p2/p2_group219.gif" width="360"><br>
+      <b>P2-2</b>
+    </td>
+  </tr>
+</table>
+
+### P3
+
+<table>
+  <tr>
+    <td align="center">
+      <img src="animations/Demo_GIF/p3/p3_group162.gif" width="360"><br>
+      <b>P3-1</b>
+    </td>
+    <td align="center">
+      <img src="animations/Demo_GIF/p3/p3_group181.gif" width="360"><br>
+      <b>P3-2</b>
+    </td>
+  </tr>
+  <tr>
+    <td align="center">
+      <img src="animations/Demo_GIF/p3/p3_grou191.gif" width="360"><br>
+      <b>P3-3</b>
+    </td>
+    <td align="center">
+      <img src="animations/Demo_GIF/p3/p3_group197.gif" width="360"><br>
+      <b>P3-4</b>
+    </td>
+  </tr>
+</table>
 
 ## Highlights
 
