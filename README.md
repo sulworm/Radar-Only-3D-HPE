@@ -18,49 +18,73 @@ python vis.py --data_root Data_With_Pred\GeoSTAR_fulldata_40
 
 Selected examples are kept in `animations/` for quick inspection.
 
-### P1
+![GeoSTAR-Pose demo GIF](animations/Demo_GIF/yaw30_test/yaw30_group80.gif)
 
-<table> <tr> <td align="center"> <a href="animations/Demo_GIF/yaw30_test/P1/yaw30_group80.gif"> <img src="animations/Demo_GIF/preview/P1/yaw30_group80_preview.gif" width="320"> </a><br> <b>P1-1: Group 80</b> </td> <td align="center"> <a href="animations/Demo_GIF/yaw30_test/P1/yaw30_group107.gif"> <img src="animations/Demo_GIF/preview/P1/yaw30_group107_preview.gif" width="320"> </a><br> <b>P1-2: Group 107</b> </td> </tr> </table>
-
-### P2
+### P1 / Tester 1
 
 <table>
   <tr>
-    <td align="center">
-      <img src="animations/Demo_GIF/p2/p2_group212.gif" width="360"><br>
-      <b>P2-1</b>
+    <td align="center" width="50%">
+      <img src="animations/Demo_GIF/yaw30_test/yaw30_group80.gif" width="100%" alt="P1 group 80"><br>
+      <sub>Group 80</sub>
     </td>
-    <td align="center">
-      <img src="animations/Demo_GIF/p2/p2_group219.gif" width="360"><br>
-      <b>P2-2</b>
+    <td align="center" width="50%">
+      <img src="animations/Demo_GIF/yaw30_test/yaw30_group107.gif" width="100%" alt="P1 group 107"><br>
+      <sub>Group 107</sub>
+    </td>
+  </tr>
+  <tr>
+    <td align="center" width="50%">
+      <img src="animations/Demo_GIF/yaw30_test/yaw30_group137.gif" width="100%" alt="P1 group 137"><br>
+      <sub>Group 137</sub>
+    </td>
+    <td align="center" width="50%">
+      <img src="animations/Demo_GIF/yaw30_test/yaw30_group139.gif" width="100%" alt="P1 group 139"><br>
+      <sub>Group 139</sub>
     </td>
   </tr>
 </table>
 
-### P3
+### P2 / Tester 2
 
 <table>
   <tr>
-    <td align="center">
-      <img src="animations/Demo_GIF/p3/p3_group162.gif" width="360"><br>
-      <b>P3-1</b>
+    <td align="center" width="50%">
+      <img src="animations/Demo_GIF/yaw30_test/yaw30_group212.gif" width="100%" alt="P2 group 212"><br>
+      <sub>Group 212</sub>
     </td>
-    <td align="center">
-      <img src="animations/Demo_GIF/p3/p3_group181.gif" width="360"><br>
-      <b>P3-2</b>
-    </td>
-  </tr>
-  <tr>
-    <td align="center">
-      <img src="animations/Demo_GIF/p3/p3_grou191.gif" width="360"><br>
-      <b>P3-3</b>
-    </td>
-    <td align="center">
-      <img src="animations/Demo_GIF/p3/p3_group197.gif" width="360"><br>
-      <b>P3-4</b>
+    <td align="center" width="50%">
+      <img src="animations/Demo_GIF/yaw30_test/yaw30_group219.gif" width="100%" alt="P2 group 219"><br>
+      <sub>Group 219</sub>
     </td>
   </tr>
 </table>
+
+### P3 / Tester 3
+
+<table>
+  <tr>
+    <td align="center" width="50%">
+      <img src="animations/Demo_GIF/yaw30_test/yaw30_group162.gif" width="100%" alt="P3 group 162"><br>
+      <sub>Group 162</sub>
+    </td>
+    <td align="center" width="50%">
+      <img src="animations/Demo_GIF/yaw30_test/yaw30_group181.gif" width="100%" alt="P3 group 181"><br>
+      <sub>Group 181</sub>
+    </td>
+  </tr>
+  <tr>
+    <td align="center" width="50%">
+      <img src="animations/Demo_GIF/yaw30_test/yaw30_group191.gif" width="100%" alt="P3 group 191"><br>
+      <sub>Group 191</sub>
+    </td>
+    <td align="center" width="50%">
+      <img src="animations/Demo_GIF/yaw30_test/yaw30_group197.gif" width="100%" alt="P3 group 197"><br>
+      <sub>Group 197</sub>
+    </td>
+  </tr>
+</table>
+
 
 ## Highlights
 
