@@ -84,11 +84,18 @@ def parse_group_spec(group_spec):
 class DataCenterAlignerSmoothNoZ:
     IMU_INDICES = [0, 1, 2, 3, 5, 6, 7, 13, 14, 16, 18, 20, 22]
     DEFAULT_RADAR_ROTATION_GROUPS = "5-44"
+    DEFAULT_IMU_ROTATION_GROUPS = "158-226"
+    # Alignment flow:
+    # radar clusters -> robust center candidates -> temporal center tracker
+    # -> smoothed XY offset -> translate IMU skeleton toward the radar track.
+    # IMU is never used as the absolute reference; it is only a weak hint when
+    # multiple radar candidates have similar quality.
 
     def __init__(
         self,
         source_dir=None,
         target_dir=None,
+        imu_rotation_groups=None,
         radar_rotation_mode="none",
         radar_rotation_groups=None,
         fixed_rotation=(0.0, 0.0, 0.0),
@@ -102,12 +109,35 @@ class DataCenterAlignerSmoothNoZ:
         yaw_min_gain=0.20,
         yaw_min_spread=0.08,
         centroid_filter_radius=1.5,
+        radar_z_min=-0.35,
+        radar_z_max=2.6,
+        radar_track_radius=1.25,
+        radar_min_points=5,
+        radar_cluster_radius=0.75,
+        radar_cluster_z_radius=1.25,
+        radar_max_candidates=5,
+        center_max_measurement_jump=0.9,
+        center_max_step=0.35,
+        center_max_accel=0.18,
+        center_update_alpha=0.45,
+        center_reacquire_alpha=0.90,
+        center_reacquire_after=3,
+        center_velocity_decay=0.85,
+        center_smooth_window=9,
+        center_transition_weight=0.65,
+        center_reacquire_transition_scale=0.20,
+        center_imu_weight=0.08,
         smooth_window=12,
+        offset_max_step=0.5,
+        save_radar="auto",
     ):
         base_dir = os.path.dirname(os.path.abspath(__file__))
         self.source_dir = source_dir if source_dir else os.path.join(base_dir, "Data_Matched")
         self.target_dir = target_dir if target_dir else os.path.join(base_dir, "Data_Aligned")
 
+        if imu_rotation_groups is None:
+            imu_rotation_groups = self.DEFAULT_IMU_ROTATION_GROUPS
+        self.imu_rotation_groups = set(parse_group_spec(imu_rotation_groups) or [])
         self.radar_rotation_mode = radar_rotation_mode
         self.radar_rotation_groups = set(
             parse_group_spec(radar_rotation_groups or self.DEFAULT_RADAR_ROTATION_GROUPS) or []
@@ -123,7 +153,30 @@ class DataCenterAlignerSmoothNoZ:
         self.yaw_min_gain = float(yaw_min_gain)
         self.yaw_min_spread = float(yaw_min_spread)
         self.centroid_filter_radius = float(centroid_filter_radius)
+        self.radar_z_min = float(radar_z_min)
+        self.radar_z_max = float(radar_z_max)
+        self.radar_track_radius = float(radar_track_radius)
+        self.radar_min_points = max(1, int(radar_min_points))
+        self.radar_cluster_radius = max(0.05, float(radar_cluster_radius))
+        self.radar_cluster_z_radius = max(0.05, float(radar_cluster_z_radius))
+        self.radar_max_candidates = max(1, int(radar_max_candidates))
+        self.center_max_measurement_jump = max(0.0, float(center_max_measurement_jump))
+        self.center_max_step = max(0.0, float(center_max_step))
+        self.center_max_accel = max(0.0, float(center_max_accel))
+        self.center_update_alpha = min(1.0, max(0.0, float(center_update_alpha)))
+        self.center_reacquire_alpha = min(1.0, max(0.0, float(center_reacquire_alpha)))
+        self.center_reacquire_after = max(1, int(center_reacquire_after))
+        self.center_velocity_decay = min(1.0, max(0.0, float(center_velocity_decay)))
+        self.center_smooth_window = max(1, int(center_smooth_window))
+        self.center_transition_weight = max(0.0, float(center_transition_weight))
+        self.center_reacquire_transition_scale = min(
+            1.0,
+            max(0.0, float(center_reacquire_transition_scale)),
+        )
+        self.center_imu_weight = max(0.0, float(center_imu_weight))
         self.smooth_window = max(1, int(smooth_window))
+        self.offset_max_step = max(0.0, float(offset_max_step))
+        self.save_radar = str(save_radar)
 
         self.available_groups = []
         self._find_available_groups()
@@ -175,10 +228,7 @@ class DataCenterAlignerSmoothNoZ:
         print(f"Found {len(self.available_groups)} groups to process")
 
     def _needs_legacy_imu_rotation(self, group_id):
-        try:
-            return int(group_id) >= 158
-        except ValueError:
-            return False
+        return str(group_id) in self.imu_rotation_groups
 
     def _needs_radar_rotation(self, group_id):
         if self.radar_rotation_mode == "none":
@@ -231,34 +281,341 @@ class DataCenterAlignerSmoothNoZ:
             return np.mean(finite_points, axis=0).astype(np.float32)
         return np.mean(finite_points[keep], axis=0).astype(np.float32)
 
-    def get_radar_alignment_centroid(self, radar_xyz, imu_centroid):
+    def get_radar_alignment_centroid(self, radar_xyz, imu_centroid=None, previous_centroid=None):
         if radar_xyz.shape[0] == 0:
             return np.zeros(3, dtype=np.float32)
 
-        radius = self.centroid_filter_radius
-        mask = (
-            (np.abs(radar_xyz[:, 0] - imu_centroid[0]) <= radius)
-            & (np.abs(radar_xyz[:, 1] - imu_centroid[1]) <= radius)
-        )
-        filtered = radar_xyz[mask]
-        if filtered.shape[0] > 0:
-            return self.get_centroid(filtered).astype(np.float32)
+        finite_mask = np.isfinite(radar_xyz).all(axis=1)
+        finite_points = radar_xyz[finite_mask]
+        if finite_points.shape[0] == 0:
+            return np.zeros(3, dtype=np.float32)
 
-        return self.get_robust_centroid(radar_xyz)
+        z_mask = (finite_points[:, 2] >= self.radar_z_min) & (finite_points[:, 2] <= self.radar_z_max)
+        candidate_points = finite_points[z_mask]
+        if candidate_points.shape[0] < self.radar_min_points:
+            candidate_points = finite_points
+
+        if previous_centroid is not None and candidate_points.shape[0] >= self.radar_min_points:
+            distances = np.linalg.norm(candidate_points[:, :2] - previous_centroid[:2], axis=1)
+            tracked = candidate_points[distances <= self.radar_track_radius]
+            if tracked.shape[0] >= self.radar_min_points:
+                return self.get_robust_centroid(tracked)
+
+        if imu_centroid is not None and candidate_points.shape[0] >= self.radar_min_points:
+            radius = self.centroid_filter_radius
+            local_mask = (
+                (np.abs(candidate_points[:, 0] - imu_centroid[0]) <= radius)
+                & (np.abs(candidate_points[:, 1] - imu_centroid[1]) <= radius)
+            )
+            local_points = candidate_points[local_mask]
+            if local_points.shape[0] >= self.radar_min_points:
+                return self.get_robust_centroid(local_points)
+
+        return self.get_robust_centroid(candidate_points)
+
+    def measure_radar_person_center(self, radar_xyz):
+        candidates = self.get_radar_center_candidates(radar_xyz)
+        if not candidates:
+            return np.zeros(3, dtype=np.float32), False, {"reason": "empty", "point_count": 0}
+
+        best = candidates[0]
+        return best["center"], True, {
+            "reason": "ok",
+            "point_count": best["point_count"],
+            "quality": best["quality"],
+            "candidate_count": len(candidates),
+        }
+
+    def _candidate_radar_points(self, radar_xyz):
+        finite_mask = np.isfinite(radar_xyz).all(axis=1)
+        finite_points = radar_xyz[finite_mask]
+        if finite_points.shape[0] == 0:
+            return np.zeros((0, 3), dtype=np.float32), "nonfinite"
+
+        z_mask = (finite_points[:, 2] >= self.radar_z_min) & (finite_points[:, 2] <= self.radar_z_max)
+        candidate_points = finite_points[z_mask]
+        if candidate_points.shape[0] < self.radar_min_points:
+            candidate_points = finite_points
+            return candidate_points.astype(np.float32), "z_fallback"
+        return candidate_points.astype(np.float32), "ok"
+
+    def _connected_components(self, points):
+        count = points.shape[0]
+        if count == 0:
+            return []
+
+        visited = np.zeros(count, dtype=bool)
+        components = []
+        for start_idx in range(count):
+            if visited[start_idx]:
+                continue
+
+            queue = [start_idx]
+            visited[start_idx] = True
+            component = []
+            while queue:
+                point_idx = queue.pop()
+                component.append(point_idx)
+                delta_xy = points[:, :2] - points[point_idx, :2]
+                xy_dist = np.linalg.norm(delta_xy, axis=1)
+                z_dist = np.abs(points[:, 2] - points[point_idx, 2])
+                neighbor_mask = (
+                    (~visited)
+                    & (xy_dist <= self.radar_cluster_radius)
+                    & (z_dist <= self.radar_cluster_z_radius)
+                )
+                neighbors = np.flatnonzero(neighbor_mask)
+                if neighbors.shape[0] > 0:
+                    visited[neighbors] = True
+                    queue.extend(neighbors.tolist())
+            components.append(component)
+        return components
+
+    def _make_center_candidate(self, points, source):
+        center = self.get_robust_centroid(points)
+        point_count = int(points.shape[0])
+        if point_count <= 1:
+            spread_xy = 0.0
+            z_span = 0.0
+        else:
+            spread_xy = float(np.median(np.linalg.norm(points[:, :2] - center[:2], axis=1)))
+            z_span = float(np.percentile(points[:, 2], 90) - np.percentile(points[:, 2], 10))
+
+        count_score = math.log1p(point_count)
+        height_score = min(1.0, max(0.0, z_span / 1.2))
+        compact_penalty = 0.20 * spread_xy
+        z_penalty = 0.05 * abs(float(center[2]) - 1.2)
+        low_center_penalty = 0.45 * max(0.0, 1.0 - float(center[2]))
+        high_center_penalty = 0.20 * max(0.0, float(center[2]) - 2.25)
+        source_penalty = 0.35 if source == "all_points" else 0.0
+        quality = (
+            count_score
+            + 0.35 * height_score
+            - compact_penalty
+            - z_penalty
+            - low_center_penalty
+            - high_center_penalty
+            - source_penalty
+        )
+        return {
+            "center": center.astype(np.float32),
+            "point_count": point_count,
+            "spread_xy": spread_xy,
+            "z_span": z_span,
+            "quality": float(quality),
+            "source": source,
+        }
+
+    def get_radar_center_candidates(self, radar_xyz):
+        if radar_xyz.shape[0] == 0:
+            return []
+
+        points, source = self._candidate_radar_points(radar_xyz)
+        if points.shape[0] < self.radar_min_points:
+            return []
+
+        components = self._connected_components(points)
+        candidates = []
+        for component in components:
+            if len(component) < self.radar_min_points:
+                continue
+            component_points = points[np.asarray(component, dtype=int)]
+            candidates.append(self._make_center_candidate(component_points, source="cluster"))
+
+        if not candidates:
+            candidates.append(self._make_center_candidate(points, source=source))
+
+        candidates.sort(key=lambda item: item["quality"], reverse=True)
+        return candidates[: self.radar_max_candidates]
+
+    def _limit_xy_vector(self, vector, max_norm):
+        norm = float(np.linalg.norm(vector))
+        if max_norm <= 0.0 or norm <= max_norm:
+            return vector
+        return vector / (norm + 1e-9) * max_norm
+
+    def _median_smooth_centers(self, centers):
+        if centers.shape[0] < self.center_smooth_window or self.center_smooth_window <= 1:
+            return centers
+
+        half_win = self.center_smooth_window // 2
+        smoothed = centers.copy()
+        for frame_idx in range(centers.shape[0]):
+            start = max(0, frame_idx - half_win)
+            end = min(centers.shape[0], frame_idx + half_win + 1)
+            smoothed[frame_idx, :2] = np.median(centers[start:end, :2], axis=0)
+        return smoothed.astype(np.float32)
+
+    def _limit_center_motion(self, centers):
+        if centers.shape[0] <= 1:
+            return centers.astype(np.float32)
+
+        limited = centers.copy()
+        previous_velocity = np.zeros(2, dtype=np.float32)
+        for frame_idx in range(1, limited.shape[0]):
+            delta = limited[frame_idx, :2] - limited[frame_idx - 1, :2]
+            accel = delta - previous_velocity
+            accel = self._limit_xy_vector(accel, self.center_max_accel)
+            delta = previous_velocity + accel
+            delta = self._limit_xy_vector(delta, self.center_max_step)
+            limited[frame_idx, :2] = limited[frame_idx - 1, :2] + delta
+            previous_velocity = delta.astype(np.float32)
+        return limited.astype(np.float32)
+
+    def _select_center_candidate(self, candidates, predicted, imu_center, missed_count):
+        if not candidates:
+            return None, False, None
+
+        is_reacquire = missed_count >= self.center_reacquire_after
+        transition_weight = self.center_transition_weight
+        if is_reacquire:
+            transition_weight *= self.center_reacquire_transition_scale
+
+        scored = []
+        for candidate in candidates:
+            center = candidate["center"]
+            distance_to_prediction = float(np.linalg.norm(center[:2] - predicted[:2]))
+            distance_to_imu = float(np.linalg.norm(center[:2] - imu_center[:2]))
+            score = candidate["quality"]
+            score -= transition_weight * distance_to_prediction
+            score -= self.center_imu_weight * min(distance_to_imu, 3.0)
+            scored.append((score, distance_to_prediction, candidate))
+
+        scored.sort(key=lambda item: item[0], reverse=True)
+        _, best_distance, best_candidate = scored[0]
+        if best_distance > self.center_max_measurement_jump and not is_reacquire:
+            return None, False, best_candidate
+        return best_candidate, is_reacquire, best_candidate
+
+    def track_radar_centers(self, candidate_lists, imu_centers):
+        frame_count = len(candidate_lists)
+        if frame_count == 0:
+            return np.zeros((0, 3), dtype=np.float32), {
+                "invalid_frames": 0,
+                "rejected_jumps": 0,
+                "predicted_frames": 0,
+                "reacquired_frames": 0,
+            }
+
+        valid_indices = [idx for idx, candidates in enumerate(candidate_lists) if candidates]
+        if not valid_indices:
+            return np.zeros((frame_count, 3), dtype=np.float32), {
+                "invalid_frames": frame_count,
+                "rejected_jumps": 0,
+                "predicted_frames": frame_count,
+                "reacquired_frames": 0,
+            }
+
+        centers = np.zeros((frame_count, 3), dtype=np.float32)
+        first_valid = int(valid_indices[0])
+        initial_candidates = candidate_lists[first_valid]
+        initial_candidates = sorted(
+            initial_candidates,
+            key=lambda candidate: (
+                candidate["quality"] - self.center_imu_weight * np.linalg.norm(candidate["center"][:2] - imu_centers[first_valid, :2])
+            ),
+            reverse=True,
+        )
+        current = initial_candidates[0]["center"].copy()
+        velocity = np.zeros(2, dtype=np.float32)
+        invalid_frames = 0
+        rejected_jumps = 0
+        predicted_frames = 0
+        reacquired_frames = 0
+        missed_count = 0
+
+        for frame_idx in range(frame_count):
+            predicted = current.copy()
+            if missed_count >= self.center_reacquire_after:
+                predicted[:2] = current[:2]
+            else:
+                predicted[:2] = current[:2] + velocity
+            candidates = candidate_lists[frame_idx]
+            selected, is_reacquire, best_candidate = self._select_center_candidate(
+                candidates,
+                predicted,
+                imu_centers[frame_idx],
+                missed_count,
+            )
+
+            if selected is not None:
+                measurement = selected["center"]
+                if is_reacquire:
+                    velocity[:] = 0.0
+                    predicted[:2] = current[:2]
+                target = predicted.copy()
+                update_alpha = self.center_reacquire_alpha if is_reacquire else self.center_update_alpha
+                target[:2] = predicted[:2] + update_alpha * (measurement[:2] - predicted[:2])
+                target[2] = measurement[2]
+                missed_count = 0
+                if is_reacquire:
+                    reacquired_frames += 1
+            else:
+                if not candidates:
+                    invalid_frames += 1
+                else:
+                    rejected_jumps += 1
+                predicted_frames += 1
+                missed_count += 1
+                target = current.copy()
+                if not candidates:
+                    velocity = velocity * self.center_velocity_decay
+                    target[:2] = current[:2] + velocity
+                else:
+                    velocity[:] = 0.0
+
+            if frame_idx <= first_valid:
+                if selected is not None:
+                    current = selected["center"].copy()
+                velocity[:] = 0.0
+            else:
+                delta = target[:2] - current[:2]
+                accel = delta - velocity
+                accel = self._limit_xy_vector(accel, self.center_max_accel)
+                delta = velocity + accel
+                delta = self._limit_xy_vector(delta, self.center_max_step)
+                next_center = current.copy()
+                next_center[:2] = current[:2] + delta
+                next_center[2] = target[2]
+                velocity = delta.astype(np.float32)
+                current = next_center.astype(np.float32)
+
+            centers[frame_idx] = current
+
+        centers[:first_valid] = centers[first_valid]
+        centers = self._median_smooth_centers(centers)
+        centers = self._limit_center_motion(centers)
+        return centers.astype(np.float32), {
+            "invalid_frames": invalid_frames,
+            "rejected_jumps": rejected_jumps,
+            "predicted_frames": predicted_frames,
+            "reacquired_frames": reacquired_frames,
+        }
 
     def smooth_offsets(self, offsets):
         if len(offsets) < self.smooth_window or self.smooth_window <= 1:
             return offsets
 
-        smoothed = np.zeros_like(offsets)
-        kernel = np.ones(self.smooth_window, dtype=np.float32) / self.smooth_window
-        for axis in range(3):
-            smoothed[:, axis] = np.convolve(offsets[:, axis], kernel, mode="same")
-
         half_win = self.smooth_window // 2
-        smoothed[:half_win] = smoothed[half_win]
-        smoothed[-half_win:] = smoothed[-half_win - 1]
-        return smoothed
+        smoothed = np.zeros_like(offsets)
+        for frame_idx in range(len(offsets)):
+            start = max(0, frame_idx - half_win)
+            end = min(len(offsets), frame_idx + half_win + 1)
+            smoothed[frame_idx] = np.median(offsets[start:end], axis=0)
+
+        if self.offset_max_step <= 0.0:
+            return smoothed.astype(np.float32)
+
+        limited = smoothed.copy()
+        for frame_idx in range(1, len(limited)):
+            delta_xy = limited[frame_idx, :2] - limited[frame_idx - 1, :2]
+            step = float(np.linalg.norm(delta_xy))
+            if step > self.offset_max_step:
+                limited[frame_idx, :2] = (
+                    limited[frame_idx - 1, :2] + delta_xy / (step + 1e-9) * self.offset_max_step
+                )
+
+        return limited.astype(np.float32)
 
     def _estimate_group_pivot(self, samples, pivot_mode):
         if pivot_mode == "group_centroid":
@@ -596,9 +953,10 @@ class DataCenterAlignerSmoothNoZ:
         pivot_mode = rotation_report.get("pivot_mode", "origin")
         group_pivot = rotation_report.get("group_pivot")
         group_pivot = np.asarray(group_pivot, dtype=np.float32) if group_pivot is not None else None
-        raw_offsets = []
         imu_data_cache = []
         radar_data_cache = []
+        imu_centers = []
+        radar_candidate_lists = []
 
         for frame_idx in range(count):
             imu_raw = np.load(os.path.join(source_imu_dir, imu_files[frame_idx]))
@@ -624,20 +982,41 @@ class DataCenterAlignerSmoothNoZ:
             radar_aligned = self.transform_radar(radar_raw, radar_rotation, radar_translation, radar_pivot)
             imu_data_cache.append(imu_13)
             radar_data_cache.append(radar_aligned)
+            c_imu = self.get_centroid(imu_13[:, :3])
+            imu_centers.append(c_imu)
 
             if radar_aligned.shape[0] > 0:
-                imu_xyz = imu_13[:, :3]
                 radar_xyz = radar_aligned[:, :3]
-                c_imu = self.get_centroid(imu_xyz)
-                c_radar = self.get_radar_alignment_centroid(radar_xyz, c_imu)
-                diff = c_radar - c_imu
-                diff[2] = 0.0
-                raw_offsets.append(diff.astype(np.float32))
+                radar_candidate_lists.append(self.get_radar_center_candidates(radar_xyz))
             else:
-                raw_offsets.append(np.zeros(3, dtype=np.float32))
+                radar_candidate_lists.append([])
 
-        raw_offsets = np.asarray(raw_offsets, dtype=np.float32)
+        imu_centers = np.asarray(imu_centers, dtype=np.float32)
+        has_candidates = any(bool(candidates) for candidates in radar_candidate_lists)
+        if has_candidates:
+            radar_centers, tracker_report = self.track_radar_centers(radar_candidate_lists, imu_centers)
+            raw_offsets = radar_centers - imu_centers
+            raw_offsets[:, 2] = 0.0
+            if (
+                tracker_report["predicted_frames"]
+                or tracker_report["rejected_jumps"]
+                or tracker_report["reacquired_frames"]
+            ):
+                print(
+                    f"Group {group_id}: center tracker predicted={tracker_report['predicted_frames']}, "
+                    f"rejected_jumps={tracker_report['rejected_jumps']}, "
+                    f"reacquired={tracker_report['reacquired_frames']}, "
+                    f"invalid={tracker_report['invalid_frames']}/{count}"
+                )
+        else:
+            raw_offsets = np.zeros_like(imu_centers, dtype=np.float32)
+            print(f"Group {group_id}: no reliable radar centers; keeping IMU XY unchanged")
+
         smoothed_offsets = self.smooth_offsets(raw_offsets)
+        same_radar_dir = os.path.abspath(source_radar_dir) == os.path.abspath(os.path.join(target_group, "Radar"))
+        save_radar = self.save_radar == "always" or (
+            self.save_radar == "auto" and (radar_rotation is not None or not same_radar_dir)
+        )
 
         for frame_idx in range(count):
             offset = smoothed_offsets[frame_idx]
@@ -646,13 +1025,38 @@ class DataCenterAlignerSmoothNoZ:
             imu_final[:, 1] += offset[1]
 
             np.save(os.path.join(target_group, "IMU", imu_files[frame_idx]), imu_final)
-            np.save(os.path.join(target_group, "Radar", radar_files[frame_idx]), radar_data_cache[frame_idx])
+            if save_radar:
+                np.save(os.path.join(target_group, "Radar", radar_files[frame_idx]), radar_data_cache[frame_idx])
 
     def run(self):
         print("=== Start data alignment ===")
         print(
-            "Logic: read -> optional radar rotation -> legacy >=158 IMU xy rotation -> "
+            "Logic: read -> optional radar rotation -> configured IMU xy rotation -> "
             "13-joint trim -> XY centroid alignment, keep IMU Z -> smooth -> save"
+        )
+        if self.imu_rotation_groups:
+            print(
+                "IMU XY rotation groups="
+                f"{self._sort_group_ids(self.imu_rotation_groups)} "
+                "(x'=-y, y'=x; moves mocap axes into the radar XY basis)"
+            )
+        print(
+            f"Radar centroid: z_range=({self.radar_z_min:.2f}, {self.radar_z_max:.2f}), "
+            f"track_radius={self.radar_track_radius:.2f}, min_points={self.radar_min_points}, "
+            f"cluster_radius={self.radar_cluster_radius:.2f}, max_candidates={self.radar_max_candidates}"
+        )
+        print(
+            f"Center tracker: reject_jump>{self.center_max_measurement_jump:.2f}m, "
+            f"max_step={self.center_max_step:.2f}m/frame, "
+            f"max_accel={self.center_max_accel:.2f}m/frame^2, "
+            f"alpha={self.center_update_alpha:.2f}, reacquire_alpha={self.center_reacquire_alpha:.2f}, "
+            f"reacquire_after={self.center_reacquire_after}, decay={self.center_velocity_decay:.2f}, "
+            f"smooth_window={self.center_smooth_window}, "
+            f"reacquire_transition_scale={self.center_reacquire_transition_scale:.2f}"
+        )
+        print(
+            f"Offset smoothing: median_window={self.smooth_window}, "
+            f"max_xy_step={self.offset_max_step:.2f} m/frame"
         )
         if self.radar_rotation_mode != "none":
             print(
@@ -672,6 +1076,19 @@ def parse_args():
     parser.add_argument("--source_dir", default=None)
     parser.add_argument("--target_dir", default=None)
     parser.add_argument("--groups", default=None, help="Group ids or ranges, for example: 59 or 5-44")
+    parser.add_argument(
+        "--refine_aligned",
+        action="store_true",
+        help=(
+            "Refine an existing Data_Aligned directory in place. This disables IMU XY re-rotation "
+            "unless --imu_rotation_groups is explicitly supplied."
+        ),
+    )
+    parser.add_argument(
+        "--imu_rotation_groups",
+        default=DataCenterAlignerSmoothNoZ.DEFAULT_IMU_ROTATION_GROUPS,
+        help="Groups whose IMU XY axes should be rotated into the radar basis using x'=-y, y'=x.",
+    )
     parser.add_argument(
         "--radar_rotation",
         default="none",
@@ -713,15 +1130,54 @@ def parse_args():
     parser.add_argument("--yaw_min_gain", type=float, default=0.20)
     parser.add_argument("--yaw_min_spread", type=float, default=0.08)
     parser.add_argument("--centroid_filter_radius", type=float, default=1.5)
+    parser.add_argument("--radar_z_min", type=float, default=-0.35)
+    parser.add_argument("--radar_z_max", type=float, default=2.6)
+    parser.add_argument("--radar_track_radius", type=float, default=1.25)
+    parser.add_argument("--radar_min_points", type=int, default=5)
+    parser.add_argument("--radar_cluster_radius", type=float, default=0.75)
+    parser.add_argument("--radar_cluster_z_radius", type=float, default=1.25)
+    parser.add_argument("--radar_max_candidates", type=int, default=5)
+    parser.add_argument("--center_max_measurement_jump", type=float, default=0.9)
+    parser.add_argument("--center_max_step", type=float, default=0.35)
+    parser.add_argument("--center_max_accel", type=float, default=0.18)
+    parser.add_argument("--center_update_alpha", type=float, default=0.45)
+    parser.add_argument("--center_reacquire_alpha", type=float, default=0.90)
+    parser.add_argument("--center_reacquire_after", type=int, default=3)
+    parser.add_argument("--center_velocity_decay", type=float, default=0.85)
+    parser.add_argument("--center_smooth_window", type=int, default=9)
+    parser.add_argument("--center_transition_weight", type=float, default=0.65)
+    parser.add_argument("--center_reacquire_transition_scale", type=float, default=0.20)
+    parser.add_argument("--center_imu_weight", type=float, default=0.08)
     parser.add_argument("--smooth_window", type=int, default=12)
+    parser.add_argument("--offset_max_step", type=float, default=0.5)
+    parser.add_argument(
+        "--save_radar",
+        default="auto",
+        choices=["auto", "always", "never"],
+        help="Save radar frames. Auto skips radar writes for in-place refinement without radar rotation.",
+    )
     return parser.parse_args()
 
 
 if __name__ == "__main__":
     args = parse_args()
+    base_dir = os.path.dirname(os.path.abspath(__file__))
+    source_dir = args.source_dir
+    target_dir = args.target_dir
+    imu_rotation_groups = args.imu_rotation_groups
+
+    if args.refine_aligned:
+        if source_dir is None:
+            source_dir = os.path.join(base_dir, "Data_Aligned")
+        if target_dir is None:
+            target_dir = source_dir
+        if imu_rotation_groups == DataCenterAlignerSmoothNoZ.DEFAULT_IMU_ROTATION_GROUPS:
+            imu_rotation_groups = ""
+
     aligner = DataCenterAlignerSmoothNoZ(
-        source_dir=args.source_dir,
-        target_dir=args.target_dir,
+        source_dir=source_dir,
+        target_dir=target_dir,
+        imu_rotation_groups=imu_rotation_groups,
         radar_rotation_mode=args.radar_rotation,
         radar_rotation_groups=args.rotation_groups,
         fixed_rotation=(args.rot_x, args.rot_y, args.rot_z),
@@ -735,7 +1191,27 @@ if __name__ == "__main__":
         yaw_min_gain=args.yaw_min_gain,
         yaw_min_spread=args.yaw_min_spread,
         centroid_filter_radius=args.centroid_filter_radius,
+        radar_z_min=args.radar_z_min,
+        radar_z_max=args.radar_z_max,
+        radar_track_radius=args.radar_track_radius,
+        radar_min_points=args.radar_min_points,
+        radar_cluster_radius=args.radar_cluster_radius,
+        radar_cluster_z_radius=args.radar_cluster_z_radius,
+        radar_max_candidates=args.radar_max_candidates,
+        center_max_measurement_jump=args.center_max_measurement_jump,
+        center_max_step=args.center_max_step,
+        center_max_accel=args.center_max_accel,
+        center_update_alpha=args.center_update_alpha,
+        center_reacquire_alpha=args.center_reacquire_alpha,
+        center_reacquire_after=args.center_reacquire_after,
+        center_velocity_decay=args.center_velocity_decay,
+        center_smooth_window=args.center_smooth_window,
+        center_transition_weight=args.center_transition_weight,
+        center_reacquire_transition_scale=args.center_reacquire_transition_scale,
+        center_imu_weight=args.center_imu_weight,
         smooth_window=args.smooth_window,
+        offset_max_step=args.offset_max_step,
+        save_radar=args.save_radar,
     )
     selected_groups = parse_group_spec(args.groups)
     if selected_groups:

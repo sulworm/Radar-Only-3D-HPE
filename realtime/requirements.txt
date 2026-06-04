@@ -1,0 +1,6 @@
+numpy
+PyOpenGL
+PyQt5
+pyqtgraph
+pyserial
+torch

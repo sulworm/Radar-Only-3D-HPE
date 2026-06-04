@@ -1,11 +1,14 @@
 # Local tooling and caches
 .codex/
 .else/
+.local_git_backups/
 __pycache__/
 *.py[cod]
 .ipynb_checkpoints/
+
+# Internal working notes
 AGENT.md
-*.md
+current_status.md
 
 # Python environments
 .venv/
@@ -13,31 +16,37 @@ venv/
 env/
 .env
 
-# Data, generated outputs, and model artifacts
-Data_Matched/
-Data_Aligned/
-Dataset_Ready*/
-Data_With_Pred*/
-Training_Results*/
-animations/
-mmchain优化方法参考/
-*.npy
-*.npz
+# Private/local datasets and generated tensors
+/Data_Collection/
+/Data_Matched/
+/Data_Aligned/
+/Dataset_Ready*/
+/Data_With_Pred/
+/.benchmark/
+
+# Generated root-level training outputs kept out of the public repo
+/Training_Results*/
+
+# Model weights and binary data artifacts
 *.pth
 *.pt
 *.ckpt
+*.npy
+*.npz
 *.pkl
 *.h5
 *.mat
+
+# Large demo videos; use GitHub Releases or external storage for these
+*.mp4
+*.avi
+*.mov
+realtime/演示视频/
+
+# Keep unselected generated animations local. Existing tracked demo GIFs remain tracked.
+/animations/
 
 # Logs and OS files
 *.log
 .DS_Store
 Thumbs.db
-
-# Published training artifacts
-!Training_Results*/
-!Training_Results*/best_model.pth
-!Training_Results*/best_model_config.json
-!Training_Results*/loss_curve.png
-!Training_Results*/training_log.json

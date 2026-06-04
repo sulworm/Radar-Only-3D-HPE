@@ -11,8 +11,8 @@ from model import MODEL_TYPES, build_model
 
 
 SOURCE_DIR = "Data_Aligned"
-OUTPUT_DIR = "Data_With_Pred"
-MODEL_PATH = "Training_Results/best_model.pth"
+OUTPUT_DIR = "Data_With_Pred/GeoSTAR_fulldata_40"
+MODEL_PATH = "model/Training_Results_GeoSTAR_fulldata_40/best_model.pth"
 SEQ_LEN = 5
 NUM_POINTS = 128
 SEED = 42
@@ -94,6 +94,20 @@ def filter_group_ids(group_ids, include_spec=DEFAULT_GROUPS, exclude_spec=DEFAUL
     return sort_group_ids(group_ids)
 
 
+def discover_source_groups(source_dir):
+    source_dir = os.path.abspath(source_dir)
+    direct_radar_dir = os.path.join(source_dir, "Radar")
+    if os.path.isdir(direct_radar_dir):
+        group_id = os.path.basename(os.path.normpath(source_dir)) or "radar"
+        return [group_id], {group_id: source_dir}, True
+
+    group_ids = sort_group_ids(
+        group for group in os.listdir(source_dir) if os.path.isdir(os.path.join(source_dir, group))
+    )
+    group_paths = {group: os.path.join(source_dir, group) for group in group_ids}
+    return group_ids, group_paths, False
+
+
 def radar_channel_count(radar_channels):
     if radar_channels == "xyz":
         return 3
@@ -115,6 +129,22 @@ def select_radar_channels(radar_data, radar_channels):
     if feature_count >= 5:
         features[:, 4] = np.log1p(np.maximum(features[:, 4], 0.0)) / SNR_LOG_SCALE
     return features
+
+
+def normalize_radar_frame(radar_data, radar_channels):
+    radar_data = np.asarray(radar_data, dtype=np.float32)
+    feature_count = radar_channel_count(radar_channels)
+    if radar_data.ndim == 1:
+        if radar_data.size == 0:
+            return np.zeros((0, feature_count), dtype=np.float32)
+        return radar_data.reshape(1, -1).astype(np.float32)
+    if radar_data.ndim != 2:
+        radar_data = np.reshape(radar_data, (-1, radar_data.shape[-1])).astype(np.float32)
+    if radar_data.shape[1] < 3:
+        padded = np.zeros((radar_data.shape[0], 3), dtype=np.float32)
+        padded[:, : radar_data.shape[1]] = radar_data
+        return padded
+    return radar_data.astype(np.float32)
 
 
 def rough_point_mask(points_xyz):
@@ -178,6 +208,7 @@ def sample_or_pad(points_xyz, rng, num_points=NUM_POINTS):
 
 
 def preprocess_radar_frame(radar_data, prev_center, rng, radar_channels="xyzvsnr"):
+    radar_data = normalize_radar_frame(radar_data, radar_channels)
     points_xyz = radar_data[:, :3].astype(np.float32)
     center, valid_world = estimate_center(points_xyz, prev_center=prev_center)
     rough_mask = rough_point_mask(points_xyz)
@@ -290,6 +321,11 @@ def parse_args():
     parser.add_argument("--groups", default=DEFAULT_GROUPS, help="Included group ids/ranges, or 'all'.")
     parser.add_argument("--exclude_groups", default=DEFAULT_EXCLUDE_GROUPS, help="Excluded group ids/ranges.")
     parser.add_argument("--phase_max_lag", type=int, default=10)
+    parser.add_argument(
+        "--radar_only",
+        action="store_true",
+        help="Run inference when only Radar frames are available; skip GT outputs and metrics.",
+    )
     return parser.parse_args()
 
 
@@ -319,10 +355,11 @@ def run_inference():
     model.load_state_dict(safe_torch_load(args.model_path, map_location=device))
     model.eval()
 
-    source_groups = sort_group_ids(
-        group for group in os.listdir(args.source_dir) if os.path.isdir(os.path.join(args.source_dir, group))
-    )
-    groups = filter_group_ids(source_groups, include_spec=args.groups, exclude_spec=args.exclude_groups)
+    source_groups, source_group_paths, direct_source = discover_source_groups(args.source_dir)
+    if direct_source and args.groups == DEFAULT_GROUPS:
+        groups = source_groups
+    else:
+        groups = filter_group_ids(source_groups, include_spec=args.groups, exclude_spec=args.exclude_groups)
     os.makedirs(args.output_dir, exist_ok=True)
     rng = np.random.default_rng(args.seed)
     diagnostics = {
@@ -343,19 +380,24 @@ def run_inference():
     print(f"Model: {model_type} | Radar channels: {radar_channels} ({input_channels}) | seq_len={seq_len}")
 
     for group in tqdm(groups, disable=not sys.stderr.isatty()):
-        source_group = os.path.join(args.source_dir, group)
+        source_group = source_group_paths[group]
         radar_dir = os.path.join(source_group, "Radar")
         imu_dir = os.path.join(source_group, "IMU")
         output_group = os.path.join(args.output_dir, group)
         os.makedirs(output_group, exist_ok=True)
 
-        if not os.path.isdir(radar_dir) or not os.path.isdir(imu_dir):
+        if not os.path.isdir(radar_dir):
             print(f"跳过缺少 IMU/Radar 的数据组: {source_group}")
             continue
 
+        has_gt = os.path.isdir(imu_dir)
+        if not has_gt and not args.radar_only:
+            print(f"Skip group without IMU: {source_group}; add --radar_only for radar-only inference")
+            continue
+
         radar_files = sorted(name for name in os.listdir(radar_dir) if name.endswith(".npy"))
-        imu_files = sorted(name for name in os.listdir(imu_dir) if name.endswith(".npy"))
-        frame_count = min(len(radar_files), len(imu_files))
+        imu_files = sorted(name for name in os.listdir(imu_dir) if name.endswith(".npy")) if has_gt else []
+        frame_count = min(len(radar_files), len(imu_files)) if has_gt else len(radar_files)
         if frame_count < 1:
             continue
 
@@ -368,7 +410,6 @@ def run_inference():
 
         for frame_idx in range(frame_count):
             radar_data = np.load(os.path.join(radar_dir, radar_files[frame_idx]))
-            imu_data = np.load(os.path.join(imu_dir, imu_files[frame_idx]))[:, :3].astype(np.float32)
             radar_features, radar_local_xyz, center = preprocess_radar_frame(
                 radar_data,
                 prev_center=prev_center,
@@ -378,15 +419,18 @@ def run_inference():
             radar_feature_frames.append(radar_features)
             radar_local_xyz_frames.append(radar_local_xyz)
             centers.append(center)
-            gt_global.append(imu_data)
-            gt_local.append((imu_data - center).astype(np.float32))
+            if has_gt:
+                imu_data = np.load(os.path.join(imu_dir, imu_files[frame_idx]))[:, :3].astype(np.float32)
+                gt_global.append(imu_data)
+                gt_local.append((imu_data - center).astype(np.float32))
             prev_center = center
 
         radar_feature_frames = np.asarray(radar_feature_frames, dtype=np.float32)
         radar_local_xyz_frames = np.asarray(radar_local_xyz_frames, dtype=np.float32)
         centers = np.asarray(centers, dtype=np.float32)
-        gt_global = np.asarray(gt_global, dtype=np.float32)
-        gt_local = np.asarray(gt_local, dtype=np.float32)
+        if has_gt:
+            gt_global = np.asarray(gt_global, dtype=np.float32)
+            gt_local = np.asarray(gt_local, dtype=np.float32)
         input_windows = build_padded_windows(radar_feature_frames, seq_len=seq_len)
         input_tensor = torch.from_numpy(input_windows).float().permute(0, 1, 3, 2)
 
@@ -406,15 +450,22 @@ def run_inference():
         np.save(os.path.join(output_group, "processed_radar.npy"), radar_global_frames)
         np.save(os.path.join(output_group, "processed_radar_local.npy"), radar_local_xyz_frames)
         np.save(os.path.join(output_group, "center.npy"), centers)
-        np.save(os.path.join(output_group, "gt.npy"), gt_global)
-        np.save(os.path.join(output_group, "gt_local.npy"), gt_local)
-
-        group_diag = compute_group_diagnostics(prediction_global, gt_global, args.phase_max_lag)
+        group_diag = {
+            "frames": int(frame_count),
+            "has_gt": bool(has_gt),
+            "radar_files_first": radar_files[0] if radar_files else None,
+            "radar_files_last": radar_files[frame_count - 1] if frame_count else None,
+        }
+        if has_gt:
+            np.save(os.path.join(output_group, "gt.npy"), gt_global)
+            np.save(os.path.join(output_group, "gt_local.npy"), gt_local)
+            group_diag.update(compute_group_diagnostics(prediction_global, gt_global, args.phase_max_lag))
         diagnostics["group_metrics"][group] = group_diag
         with open(os.path.join(output_group, "diagnostics.json"), "w", encoding="utf-8") as handle:
             json.dump(group_diag, handle, ensure_ascii=False, indent=2)
 
-    if diagnostics["group_metrics"]:
+    metric_groups = [row for row in diagnostics["group_metrics"].values() if row.get("has_gt")]
+    if metric_groups:
         metric_names = [
             "mpjpe",
             "lower_body_mpjpe",
@@ -423,11 +474,11 @@ def run_inference():
             "foot_motion_ratio",
         ]
         diagnostics["summary"] = {
-            name: float(np.mean([row[name] for row in diagnostics["group_metrics"].values()]))
+            name: float(np.mean([row[name] for row in metric_groups]))
             for name in metric_names
         }
         diagnostics["summary"]["phase_delay_frames_mean"] = float(
-            np.mean([row["phase_delay_frames"] for row in diagnostics["group_metrics"].values()])
+            np.mean([row["phase_delay_frames"] for row in metric_groups])
         )
 
     with open(os.path.join(args.output_dir, "diagnostics.json"), "w", encoding="utf-8") as handle:

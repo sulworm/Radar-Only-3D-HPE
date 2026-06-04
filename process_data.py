@@ -106,6 +106,10 @@ def action_bucket(group_id):
         return "random_motion_191_200"
     if 201 <= gid <= 204:
         return "arm_raise_201_204"
+    if 210 <= gid <= 222:
+        return "mixed_detail_generalization_210_222"
+    if 224 <= gid <= 226:
+        return "mixed_detail_generalization_224_226"
     return "other"
 
 

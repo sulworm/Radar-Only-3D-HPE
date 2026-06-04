@@ -15,7 +15,7 @@ from model import MODEL_TYPES, build_model
 
 
 DATA_DIR = "Dataset_Ready"
-SAVE_DIR = "Training_Results"
+SAVE_DIR = "model/Training_Results"
 SEQ_LEN = 5
 BATCH_SIZE = 128
 EPOCHS = 8

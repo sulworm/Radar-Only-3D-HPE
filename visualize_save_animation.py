@@ -1,3 +1,4 @@
+import argparse
 import os
 
 import matplotlib
@@ -21,7 +22,7 @@ except Exception:
 
 
 class FinalVisualizer:
-    def __init__(self, data_root="Data_With_Pred_mmchain_lite"):
+    def __init__(self, data_root="Data_With_Pred/GeoSTAR_fulldata_40"):
         self.data_root = data_root
         self.radar_data = None
         self.pred_data = None
@@ -78,13 +79,20 @@ class FinalVisualizer:
         try:
             self.radar_data = np.load(os.path.join(group_path, "processed_radar.npy"))
             self.pred_data = np.load(os.path.join(group_path, "prediction.npy"))
-            self.gt_data = np.load(os.path.join(group_path, "gt.npy"))
+            gt_path = os.path.join(group_path, "gt.npy")
+            self.gt_data = np.load(gt_path) if os.path.exists(gt_path) else None
             center_path = os.path.join(group_path, "center.npy")
             self.center_data = np.load(center_path) if os.path.exists(center_path) else None
-            self.total_frames = min(len(self.radar_data), len(self.pred_data), len(self.gt_data))
+            frame_counts = [len(self.radar_data), len(self.pred_data)]
+            if self.gt_data is not None:
+                frame_counts.append(len(self.gt_data))
+            self.total_frames = min(frame_counts)
             self.radar_data = self.radar_data[: self.total_frames]
             self.pred_data = self.pred_data[: self.total_frames]
-            self.gt_data = self.gt_data[: self.total_frames]
+            if self.gt_data is not None:
+                self.gt_data = self.gt_data[: self.total_frames]
+            else:
+                self.show_layers[2] = False
             if self.center_data is not None:
                 self.center_data = self.center_data[: self.total_frames]
             self.group_id = gid
@@ -146,17 +154,22 @@ class FinalVisualizer:
 
     def print_collapse_summary(self):
         pred_root_std = np.std(self.pred_data[:, 0, :], axis=0)
-        gt_root_std = np.std(self.gt_data[:, 0, :], axis=0)
         pred_center = np.mean(self.pred_data[:, 0, :], axis=0)
-        gt_center = np.mean(self.gt_data[:, 0, :], axis=0)
         print(f"Pred root std xyz: {pred_root_std}")
-        print(f"GT root std xyz:   {gt_root_std}")
         print(f"Pred root mean xyz: {pred_center}")
-        print(f"GT root mean xyz:   {gt_center}")
+        if self.gt_data is not None:
+            gt_root_std = np.std(self.gt_data[:, 0, :], axis=0)
+            gt_center = np.mean(self.gt_data[:, 0, :], axis=0)
+            print(f"GT root std xyz:   {gt_root_std}")
+            print(f"GT root mean xyz:   {gt_center}")
+        else:
+            print("GT not available; showing radar-only prediction.")
 
     def compute_axes(self):
         arrays = []
         for data in (self.radar_data, self.pred_data, self.gt_data):
+            if data is None:
+                continue
             arr = np.asarray(data).reshape(-1, 3)
             arr = arr[np.isfinite(arr).all(axis=1)]
             arr = arr[np.any(np.abs(arr) > 1e-6, axis=1)]
@@ -252,11 +265,12 @@ class FinalVisualizer:
         ax.set_xlabel("X")
         ax.set_ylabel("Y")
         ax.set_zlabel("Z")
-        ax.set_title(f"Group {self.group_id}: Prediction vs GT")
+        title_suffix = "Prediction vs GT" if self.gt_data is not None else "Radar-only Prediction"
+        ax.set_title(f"Group {self.group_id}: {title_suffix}")
         ax.legend()
 
         pred_root_std = np.std(self.pred_data[:, 0, :], axis=0).mean()
-        gt_root_std = np.std(self.gt_data[:, 0, :], axis=0).mean()
+        gt_root_std = np.std(self.gt_data[:, 0, :], axis=0).mean() if self.gt_data is not None else None
 
         def draw_frame(idx):
             if self.show_layers[0]:
@@ -275,7 +289,7 @@ class FinalVisualizer:
                 scat_pred._offsets3d = ([], [], [])
                 line_pred.set_segments([])
 
-            if self.show_layers[2]:
+            if self.show_layers[2] and self.gt_data is not None:
                 gt = self.gt_data[idx]
                 scat_gt._offsets3d = (gt[:, 0], gt[:, 1], gt[:, 2])
                 line_gt.set_segments(self.get_lines(gt))
@@ -290,17 +304,26 @@ class FinalVisualizer:
                 scat_center._offsets3d = ([], [], [])
 
             pred = self.pred_data[idx]
-            gt = self.gt_data[idx]
-            mpjpe = np.mean(np.linalg.norm(pred - gt, axis=1))
-            root_err = np.linalg.norm(pred[0] - gt[0])
             state = "Saving" if self.is_saving else ("Play" if self.is_playing else "Pause")
-            txt_info.set_text(
-                f"Frame: {idx}/{self.total_frames - 1}\n"
-                f"State: {state}\n"
-                f"MPJPE: {mpjpe:.3f}m\n"
-                f"Root Err: {root_err:.3f}m\n"
-                f"Root Std P/G: {pred_root_std:.3f}/{gt_root_std:.3f}"
-            )
+            if self.gt_data is not None:
+                gt = self.gt_data[idx]
+                mpjpe = np.mean(np.linalg.norm(pred - gt, axis=1))
+                root_err = np.linalg.norm(pred[0] - gt[0])
+                info = (
+                    f"Frame: {idx}/{self.total_frames - 1}\n"
+                    f"State: {state}\n"
+                    f"MPJPE: {mpjpe:.3f}m\n"
+                    f"Root Err: {root_err:.3f}m\n"
+                    f"Root Std P/G: {pred_root_std:.3f}/{gt_root_std:.3f}"
+                )
+            else:
+                info = (
+                    f"Frame: {idx}/{self.total_frames - 1}\n"
+                    f"State: {state}\n"
+                    f"GT: unavailable\n"
+                    f"Pred Root Std: {pred_root_std:.3f}"
+                )
+            txt_info.set_text(info)
 
         def update(frame):
             if self.is_saving:
@@ -348,5 +371,19 @@ class FinalVisualizer:
         plt.show()
 
 
+def parse_args():
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        "--data_root",
+        "--pred_dir",
+        dest="data_root",
+        # default="Data_With_Pred/baseline",
+        default="Data_With_Pred/GeoSTAR_fulldata_40",
+        help="Prediction output directory produced by inference.py.",
+    )
+    return parser.parse_args()
+
+
 if __name__ == "__main__":
-    FinalVisualizer().run()
+    args = parse_args()
+    FinalVisualizer(data_root=args.data_root).run()

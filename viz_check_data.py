@@ -1,3 +1,5 @@
+import argparse
+from collections import OrderedDict
 import os
 import numpy as np
 import matplotlib.pyplot as plt
@@ -13,10 +15,14 @@ except:
 
 #检查各种文件夹中的数据是否对齐，是否正确加载。存几个名字在这方便复制 Data_Aligned Data_Matched
 class DataAlignedVisualizer:
-    def __init__(self, data_root='Data_Aligned'):
+    def __init__(self, data_root='Data_Aligned', group_id=None, frame_step=1, cache_size=128):
         self.data_root = data_root
-        self.imu_data = []
-        self.radar_data = []
+        self.group_id = str(group_id) if group_id is not None else None
+        self.frame_step = max(1, int(frame_step))
+        self.cache_size = max(1, int(cache_size))
+        self.imu_files = []
+        self.radar_files = []
+        self.frame_cache = OrderedDict()
 
         self.is_playing = True
         self.current_idx = 0
@@ -58,7 +64,7 @@ class DataAlignedVisualizer:
         print(f"可用数据组 ({len(groups)}):")
         print(groups[:10], "...", groups[-5:])  # 只打印部分
 
-        gid = input("请输入组名 (例如 131): ").strip()
+        gid = self.group_id or input("请输入组名 (例如 131): ").strip()
         g_path = os.path.join(self.data_root, gid)
 
         if not os.path.exists(g_path):
@@ -73,6 +79,10 @@ class DataAlignedVisualizer:
             r_files = sorted([f for f in os.listdir(r_dir) if f.endswith('.npy')])
             i_files = sorted([f for f in os.listdir(i_dir) if f.endswith('.npy')])
 
+            if self.frame_step > 1:
+                r_files = r_files[::self.frame_step]
+                i_files = i_files[::self.frame_step]
+
             # 取最小长度，确保一一对应
             count = min(len(r_files), len(i_files))
 
@@ -81,18 +91,33 @@ class DataAlignedVisualizer:
                 return False
 
             print(f"正在加载组 {gid}...")
-            print(f"Radar文件数: {len(r_files)}, IMU文件数: {len(i_files)} -> 取前 {count} 帧")
+            print(
+                f"Radar文件数: {len(r_files)}, IMU文件数: {len(i_files)} -> 取前 {count} 帧 "
+                f"(frame_step={self.frame_step})"
+            )
 
-            # 按索引加载
-            self.radar_data = [np.load(os.path.join(r_dir, r_files[i])) for i in range(count)]
-            self.imu_data = [np.load(os.path.join(i_dir, i_files[i])) for i in range(count)]
+            self.radar_files = [os.path.join(r_dir, r_files[i]) for i in range(count)]
+            self.imu_files = [os.path.join(i_dir, i_files[i]) for i in range(count)]
+            self.frame_cache.clear()
 
             self.total_frames = count
-            print("加载成功！")
+            print("文件列表加载成功，帧数据将按需读取。")
             return True
         except Exception as e:
             print(f"加载过程中发生异常: {e}")
             return False
+
+    def get_frame(self, idx):
+        if idx in self.frame_cache:
+            self.frame_cache.move_to_end(idx)
+            return self.frame_cache[idx]
+
+        radar = np.load(self.radar_files[idx])
+        imu = np.load(self.imu_files[idx])
+        self.frame_cache[idx] = (radar, imu)
+        if len(self.frame_cache) > self.cache_size:
+            self.frame_cache.popitem(last=False)
+        return radar, imu
 
     def run(self):
         if not self.select_group(): return
@@ -151,8 +176,8 @@ class DataAlignedVisualizer:
             idx = self.current_idx
 
             # --- 更新 Radar (Layer 1) ---
+            r, imu = self.get_frame(idx)
             if self.show_layers[0]:
-                r = self.radar_data[idx]
                 if r.shape[0] > 0:
                     scat_radar._offsets3d = (r[:, 0], r[:, 1], r[:, 2])
                 else:
@@ -162,7 +187,6 @@ class DataAlignedVisualizer:
 
             # --- 更新 Skeleton (Layer 2) ---
             if self.show_layers[1]:
-                imu = self.imu_data[idx]  # (13, 3)
                 scat_imu._offsets3d = (imu[:, 0], imu[:, 1], imu[:, 2])
                 line_imu.set_segments(get_lines(imu))
             else:
@@ -193,5 +217,16 @@ class DataAlignedVisualizer:
 
 
 if __name__ == "__main__":
-    viz = DataAlignedVisualizer()
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--data_root", default="Data_Aligned_Test")
+    parser.add_argument("--group", default=None)
+    parser.add_argument("--frame_step", type=int, default=1)
+    parser.add_argument("--cache_size", type=int, default=128)
+    args = parser.parse_args()
+    viz = DataAlignedVisualizer(
+        data_root=args.data_root,
+        group_id=args.group,
+        frame_step=args.frame_step,
+        cache_size=args.cache_size,
+    )
     viz.run()
