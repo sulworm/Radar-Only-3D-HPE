@@ -4,6 +4,9 @@ GeoSTAR-Pose is a radar-only 3D human pose estimation project for sparse mmWave 
 
 The repository contains the training, inference, visualization, real-time demo, and public benchmark adapter code. Raw data, processed tensors, prediction outputs, and model weights are not committed to the repository.
 
+#Demo_Video
+https://github.com/user-attachments/assets/e109d8f6-f6d2-4433-a3ad-7da1c87f54b6.mp4
+
 ## Visualization
 
 Use the interactive viewer after running inference:
