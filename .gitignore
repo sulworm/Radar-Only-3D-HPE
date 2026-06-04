@@ -43,8 +43,10 @@ env/
 *.mov
 realtime/演示视频/
 
-# Keep unselected generated animations local. Existing tracked demo GIFs remain tracked.
-/animations/
+# Keep unselected generated animations local. Track curated demo GIFs.
+/animations/*
+!/animations/Demo_GIF/
+!/animations/Demo_GIF/**
 
 # Logs and OS files
 *.log
