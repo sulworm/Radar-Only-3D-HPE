@@ -41,7 +41,6 @@ Selected examples are kept in `animations/` for quick inspection.
       <sub>Group 139</sub>
     </td>
   </tr>
-</table>
   <tr>
     <td align="center" width="50%">
       <img src="animations/Demo_GIF/yaw30_test/yaw30_group144.gif" width="100%" alt="P1 group 144"><br>
@@ -52,6 +51,7 @@ Selected examples are kept in `animations/` for quick inspection.
       <sub>Group 226</sub>
     </td>
   </tr>
+</table>
 
 ### P2 / Tester 2
 
