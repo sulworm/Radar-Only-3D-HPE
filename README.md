@@ -63,16 +63,6 @@ Selected examples are kept in `animations/` for quick inspection.
 <table>
   <tr>
     <td align="center" width="50%">
-      <img src="animations/Demo_GIF/yaw30_test/yaw30_group162.gif" width="100%" alt="P3 group 162"><br>
-      <sub>Group 162</sub>
-    </td>
-    <td align="center" width="50%">
-      <img src="animations/Demo_GIF/yaw30_test/yaw30_group181.gif" width="100%" alt="P3 group 181"><br>
-      <sub>Group 181</sub>
-    </td>
-  </tr>
-  <tr>
-    <td align="center" width="50%">
       <img src="animations/Demo_GIF/yaw30_test/yaw30_group191.gif" width="100%" alt="P3 group 191"><br>
       <sub>Group 191</sub>
     </td>
