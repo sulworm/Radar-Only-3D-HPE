@@ -18,8 +18,6 @@ python vis.py --data_root Data_With_Pred\GeoSTAR_fulldata_40
 
 Selected examples are kept in `animations/` for quick inspection.
 
-![GeoSTAR-Pose demo GIF](animations/Demo_GIF/yaw30_test/yaw30_group80.gif)
-
 ### P1 / Tester 1
 
 <table>
@@ -44,6 +42,16 @@ Selected examples are kept in `animations/` for quick inspection.
     </td>
   </tr>
 </table>
+  <tr>
+    <td align="center" width="50%">
+      <img src="animations/Demo_GIF/yaw30_test/yaw30_group144.gif" width="100%" alt="P1 group 144"><br>
+      <sub>Group 144</sub>
+    </td>
+    <td align="center" width="50%">
+      <img src="animations/Demo_GIF/yaw30_test/yaw30_group226.gif" width="100%" alt="P1 group 226"><br>
+      <sub>Group 226</sub>
+    </td>
+  </tr>
 
 ### P2 / Tester 2
 
