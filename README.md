@@ -7,6 +7,8 @@ The repository contains the training, inference, visualization, real-time demo, 
 #Demo_Video
 https://github.com/user-attachments/assets/e109d8f6-f6d2-4433-a3ad-7da1c87f54b6.mp4
 
+https://github.com/user-attachments/assets/e109d8f6-f6d2-4433-a3ad-7da1c87f54b6
+
 ## Visualization
 
 Use the interactive viewer after running inference:
