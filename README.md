@@ -108,6 +108,15 @@ python inference.py --model_path model\Training_Results_GeoSTAR_fulldata\best_mo
 
 ## Current Results
 
+GeoSTAR with 30 degree yaw augmentation, 30 epochs:
+
+```text
+best_epoch          = 30
+test_local_mpjpe    ~= 0.1032 m
+root_relative_mpjpe ~= 0.0812 m
+foot_motion_ratio   ~= 1.122
+```
+
 Full-data GeoSTAR, 20 epochs:
 
 ```text
@@ -125,7 +134,7 @@ root_relative_mpjpe ~= 0.0839 m
 foot_motion_ratio   ~= 1.123
 ```
 
-Training error continues to decrease after 20 epochs, while test MPJPE is mostly plateaued. Current next steps focus on stronger geometry modeling, temporal smoothness, and more standardized public benchmark evaluation.
+The yaw30 run is the current best local result by test MPJPE and root-relative MPJPE. Training error continues to decrease after 20 epochs, while the full-data test MPJPE is mostly plateaued. Current next steps focus on stronger geometry modeling, temporal smoothness, and more standardized public benchmark evaluation.
 
 ## Public Benchmark Code
 
